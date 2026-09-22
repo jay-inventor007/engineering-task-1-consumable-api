@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: property-listings-api
+    runtime: node
+    rootDir: api
+    plan: free
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    envVars:
+      - key: DATABASE_URL
+        sync: false # entered by hand in the Render dashboard, never committed
+      - key: NODE_VERSION
+        value: 24
