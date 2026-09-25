@@ -711,7 +711,17 @@ to 60 seconds while it wakes, and later requests are fast.
 ## Evidence
 
 - **Live API URL:** `https://property-listings-api-el8s.onrender.com/api/v1`
-- **curl against the live URL, paginated response:** `docs/evidence/curl-paginated.png`
-- **429 after exceeding the rate limit:** `docs/evidence/rate-limit-429.png`
-- **Consumer showing live data:** `docs/evidence/consumer.png`
 - **Seed script:** [`api/scripts/seed.ts`](api/scripts/seed.ts)
+
+**curl against the live URL, paginated response:**
+
+![curl showing a paginated response from the live API](docs/evidence/curl-paginated.png)
+
+**429 after exceeding the rate limit** (130 concurrent requests fired from the browser console; a
+single-threaded sequential loop doesn't arrive fast enough to land inside one rate-limit window):
+
+![Browser console showing repeated 429 Too Many Requests responses](docs/evidence/rate-limit-429.png)
+
+**Consumer displaying live data from the deployed API**, with filters and pagination:
+
+![Consumer web page listing properties fetched from the live API](docs/evidence/consumer.png)
