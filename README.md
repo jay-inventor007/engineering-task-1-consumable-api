@@ -1,17 +1,17 @@
-# Property Listings API
+﻿# Property Listings API
 
 A public, read-mostly REST API for a Nigerian residential property market: estate agencies, the
 agents who work for them, the properties those agents list for sale or rent, and viewing requests
 made against those listings. Anyone can call it; no key or account is needed to read.
 
-- **Live API:** `https://API_HOST/api/v1` (replace `API_HOST` below with the deployed host)
+- **Live API:** `https://property-listings-api-el8s.onrender.com/api/v1`
 - **Consumer:** [`consumer/`](consumer/), a single page that calls the live API
 - **Seed script:** [`api/scripts/seed.ts`](api/scripts/seed.ts)
 
 Try it:
 
 ```bash
-curl "https://API_HOST/api/v1/listings?city=Lagos&listingType=rent&sort=price&order=asc&limit=3"
+curl "https://property-listings-api-el8s.onrender.com/api/v1/listings?city=Lagos&listingType=rent&sort=price&order=asc&limit=3"
 ```
 
 ---
@@ -33,7 +33,7 @@ curl "https://API_HOST/api/v1/listings?city=Lagos&listingType=rent&sort=price&or
 Four resources. Each one references the one above it:
 
 ```
-agencies 1 ──< agents 1 ──< listings 1 ──< viewings
+agencies 1 â”€â”€< agents 1 â”€â”€< listings 1 â”€â”€< viewings
 ```
 
 - An **agency** employs many agents.
@@ -177,7 +177,7 @@ Sending `?offset=` returns a `400` that says so.
 `Retry-After` (seconds).
 
 **Money.** Prices are integers in minor units (`priceMinor`, in kobo) with a `currency` beside them.
-`priceMinor: 165000000` with `currency: "NGN"` means ₦1,650,000. Price filters also use kobo.
+`priceMinor: 165000000` with `currency: "NGN"` means â‚¦1,650,000. Price filters also use kobo.
 
 ---
 
@@ -186,7 +186,7 @@ Sending `?offset=` returns a `400` that says so.
 The examples use `$API` for the base URL:
 
 ```bash
-API=https://API_HOST/api/v1
+API=https://property-listings-api-el8s.onrender.com/api/v1
 ```
 
 ### Agencies
@@ -335,7 +335,7 @@ List listings.
 | `propertyType` | enum    |            | `apartment`, `duplex`, `bungalow`, `terrace`, `land`          |
 | `status`       | enum    |            | `active`, `under_offer`, `sold`, `let`                        |
 | `minPrice`     | integer |            | `priceMinor` at least this (kobo)                             |
-| `maxPrice`     | integer |            | `priceMinor` at most this (kobo); must be ≥ `minPrice`        |
+| `maxPrice`     | integer |            | `priceMinor` at most this (kobo); must be â‰¥ `minPrice`        |
 | `minBedrooms`  | integer |            | at least this many bedrooms                                   |
 | `agentId`      | uuid    |            | only this agent's listings                                    |
 | `sort`         | enum    | `listedAt` | `listedAt`, `price`, `bedrooms`                               |
@@ -497,7 +497,7 @@ curl -i -X DELETE "$API/viewings/699886f4-57e4-4ed3-9fb8-032b58c66a49"
 
 Property is a market where the relationships are the product: a buyer searches **listings**, trusts
 the **agent** by experience, and the **agency** for its standing. Three read-only resources in a chain
-(`agencies → agents → listings`) exercise nested endpoints and foreign keys. The fourth,
+(`agencies â†’ agents â†’ listings`) exercise nested endpoints and foreign keys. The fourth,
 **viewings**, is the one thing a member of the public creates, so it carries the `POST`, `PATCH`, and
 `DELETE` endpoints and the write-side rules: validation, a state that can close, and a real
 conflict (two people booking the same listing at the same time).
@@ -577,11 +577,37 @@ The page size defaults, the maximum page size, and the rate-limit numbers are al
 limiter read them from there, so a change is a one-line diff reviewed in one place, and no handler
 can drift to its own limit.
 
-The rate limiter is a fixed-window counter held in memory, keyed on client IP. `trust proxy` is set
-to one hop, because on Render `req.socket` is Render's proxy, not the client; without it every
-request would share one bucket. In-memory is correct for a single instance. Scaling to several
-instances would need the counter in a shared store (Redis or Postgres), or each instance would
-allow its own 100.
+The rate limiter is a fixed-window counter held in memory, keyed on client IP. In-memory is correct
+for a single instance; scaling to several instances would need the counter in a shared store
+(Redis or Postgres), or each instance would allow its own 100.
+
+**What went wrong, deploying this to Render.** The rate limiter passed every local test: hitting it
+past 100 requests returned `429` reliably. On the live Render deployment, the same test — fired as
+a burst of 130 concurrent requests — returned `200` for all of them. Sequential requests, run one
+at a time, *did* decrement `X-RateLimit-Remaining` correctly, which ruled out the limiter's logic
+itself and pointed at IP resolution instead.
+
+The cause: `req.ip` in Express is derived from the `X-Forwarded-For` header, and how many entries
+in that header to trust is a number you configure (`app.set('trust proxy', N)`), because a client
+could set `X-Forwarded-For` itself to fake an IP if the server trusted it blindly. Render's actual
+chain, confirmed by temporarily echoing it back in a response header, is:
+
+```
+X-Forwarded-For: <real client>, <Cloudflare edge>, <Render's internal load balancer>
+```
+
+Three entries, not one. With `trustProxyHops` set to `1` (the original, untested assumption), `req.ip`
+resolved to Render's own internal load balancer address — not the client's. That address isn't
+guaranteed stable per client under concurrent connections, so concurrent requests spread across
+several map keys instead of accumulating in one, and the limiter never tripped. Sequential requests
+happened to look fine because, one at a time, that internal address stayed consistent enough to
+still accumulate — the bug only showed up under concurrency, which is exactly the condition the
+brief's break-it test uses.
+
+The fix was `trustProxyHops: 3`, verified against the real header rather than guessed: setting it
+to `1` and `2` first and reading back the resolved IP at each step to see which position in the
+chain was being selected, until `3` matched the real client's address. Confirmed after the fix:
+a 130-request concurrent burst returned 99×`200` and 31×`429`, each carrying `Retry-After`.
 
 ### Adding a field without breaking clients
 
@@ -622,7 +648,7 @@ Requirements: Node.js 20 or newer, and a Postgres 13+ database (a free Supabase 
    ```bash
    cp .env.example .env
    ```
-   For Supabase: **Project Settings → Database → Connection string → Session pooler**. Use the
+   For Supabase: **Project Settings â†’ Database â†’ Connection string â†’ Session pooler**. Use the
    pooler string (IPv4); the direct connection is IPv6-only and fails from many networks and from Render.
 3. Create the tables:
    ```bash
@@ -641,7 +667,7 @@ Requirements: Node.js 20 or newer, and a Postgres 13+ database (a free Supabase 
    ```bash
    cd ../consumer
    npm install
-   cp .env.example .env    # set VITE_API_BASE_URL to the deployed API, e.g. https://API_HOST/api/v1
+   cp .env.example .env    # set VITE_API_BASE_URL to the deployed API, e.g. https://property-listings-api-el8s.onrender.com/api/v1
    npm run dev
    ```
    Open the URL Vite prints (http://localhost:5173).
@@ -671,11 +697,11 @@ The API runs as a Render web service. The database is a managed Postgres on Supa
 
 1. Create a Supabase project and copy its **Session pooler** connection string.
 2. From your machine, with that string as `DATABASE_URL` in `api/.env`, run `npm run migrate` then `npm run seed`.
-3. In Render, choose **New → Blueprint** and point it at this repository. [`render.yaml`](render.yaml)
+3. In Render, choose **New â†’ Blueprint** and point it at this repository. [`render.yaml`](render.yaml)
    defines the service (`rootDir: api`, build `npm ci && npm run build`, start `npm start`).
 4. When prompted, enter `DATABASE_URL`. It is set in the Render dashboard only, never committed.
 5. When the deploy is live, check it from a network that is not yours (a phone on mobile data):
-   `curl "https://API_HOST/api/v1/listings?limit=1"`.
+   `curl "https://property-listings-api-el8s.onrender.com/api/v1/listings?limit=1"`.
 
 The free Render instance sleeps after 15 minutes idle. The first request after that takes around 30
 to 60 seconds while it wakes, and later requests are fast.
@@ -684,7 +710,7 @@ to 60 seconds while it wakes, and later requests are fast.
 
 ## Evidence
 
-- **Live API URL:** `https://API_HOST/api/v1`
+- **Live API URL:** `https://property-listings-api-el8s.onrender.com/api/v1`
 - **curl against the live URL, paginated response:** `docs/evidence/curl-paginated.png`
 - **429 after exceeding the rate limit:** `docs/evidence/rate-limit-429.png`
 - **Consumer showing live data:** `docs/evidence/consumer.png`
