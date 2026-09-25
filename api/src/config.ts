@@ -15,9 +15,15 @@ export const config = {
     maxRequestsPerWindow: 100,
   },
 
-  // Render terminates TLS at one proxy hop in front of the app. Trusting exactly one hop makes
-  // req.ip the real client address, which is what the rate limiter keys on.
-  trustProxyHops: 1,
+  // Render's requests arrive through two proxy hops in front of the app: an edge/CDN layer and
+  // an internal load balancer, giving an X-Forwarded-For chain of
+  // "<client>, <edge>, <internal-lb>". Trusting only one hop (the original assumption) made
+  // Express read the internal load balancer's own address as req.ip instead of the client's,
+  // and that address is not stable per client under concurrent connections - which is why the
+  // rate limiter never triggered under a concurrent burst even though it worked for sequential
+  // requests. Trusting two hops skips both proxies and reaches the real client address.
+  // Confirmed against the deployed X-Forwarded-For chain; see DOCUMENTATION.md "What Went Wrong".
+  trustProxyHops: 2,
 
   maxJsonBodyBytes: '10kb',
 } as const;

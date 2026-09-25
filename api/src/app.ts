@@ -14,14 +14,7 @@ app.set('trust proxy', config.trustProxyHops);
 app.disable('x-powered-by');
 
 // Public API: any origin may call it, which is what lets the consumer page run from anywhere.
-app.use(cors({ methods: ['GET', 'POST', 'PATCH', 'DELETE'], exposedHeaders: ['Retry-After', 'Location', 'X-RateLimit-Remaining', 'X-Debug-Ip', 'X-Debug-Xff'] }));
-// TEMPORARY diagnostic for the concurrent-request rate-limit investigation (see DOCUMENTATION.md
-// "What Went Wrong"). Remove once the trust-proxy setting is confirmed correct.
-app.use((req, res, next) => {
-  res.setHeader('X-Debug-Ip', req.ip ?? 'none');
-  res.setHeader('X-Debug-Xff', req.headers['x-forwarded-for']?.toString() ?? 'none');
-  next();
-});
+app.use(cors({ methods: ['GET', 'POST', 'PATCH', 'DELETE'], exposedHeaders: ['Retry-After', 'Location', 'X-RateLimit-Remaining'] }));
 app.use(rateLimit);
 app.use(express.json({ limit: config.maxJsonBodyBytes }));
 
