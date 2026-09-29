@@ -337,6 +337,7 @@ List listings.
 | `minPrice`     | integer |            | `priceMinor` at least this (kobo)                             |
 | `maxPrice`     | integer |            | `priceMinor` at most this (kobo); must be â‰¥ `minPrice`        |
 | `minBedrooms`  | integer |            | at least this many bedrooms                                   |
+| `q`            | string  |            | full-text search over title, description, address, city, and state (2 to 100 characters) |
 | `agentId`      | uuid    |            | only this agent's listings                                    |
 | `sort`         | enum    | `listedAt` | `listedAt`, `price`, `bedrooms`                               |
 | `order`        | enum    | `desc`     | `asc`, `desc`                                                 |
@@ -375,6 +376,17 @@ curl "$API/listings?city=Lagos&listingType=rent&minBedrooms=3&sort=price&order=a
 ```
 
 Next page: repeat the same request and add `&cursor=<meta.nextCursor>`.
+
+`q` is word-based full-text search, not substring matching. Terms are stemmed, so `apartment`
+matches `apartments`, and quoted phrases work:
+
+```bash
+curl "$API/listings?q=duplex+ikoyi&sort=price&order=asc&limit=3"
+```
+
+```bash
+curl "$API/listings?q=\"en suite\"&city=Lagos&limit=3"
+```
 
 #### `GET /api/v1/listings/:id`
 
@@ -553,6 +565,28 @@ returned so a client can show "22 listings".
 `nextCursor`, and the last page returns `nextCursor: null` and `hasMore: false`. A hand-made or tampered cursor is rejected with `400 INVALID_CURSOR`. A valid
 cursor whose rows have since been deleted still works: it returns whatever rows come after that
 point, possibly an empty `data` array with `hasMore: false`.
+
+### Why full-text search for `q`, not `LIKE`
+
+The agents list offers `q` as a case-insensitive `ILIKE '%...%'`. That is fine for a short name
+field, but it cannot work for listings. `ILIKE` with a leading wildcard cannot use an index, so it
+reads every row and every description on every request, and it matches character substrings rather
+than words: searching `apartment` would not match `apartments`.
+
+Listings carry the most searchable text in the API, so their `q` uses Postgres full-text search:
+
+- `search_vector` is a **generated column** ([`api/sql/002_listings_search.sql`](api/sql/002_listings_search.sql)),
+  computed by the database on write, so it can never drift from the row it describes.
+- A **GIN index** on that column serves `@@` matches; `EXPLAIN ANALYZE` shows a bitmap index scan,
+  not a sequential scan.
+- Queries go through **`websearch_to_tsquery`**, which accepts whatever a user types without a
+  syntax error, and understands quoted phrases.
+
+Two honest limitations. First, `q` filters but does not rank: results arrive in the requested sort
+order, because relevance ranking (`ts_rank`) would need its own ordered keyset to keep cursor
+pagination correct. Second, a query made only of English stop words (`the`, `for`, `and`) matches
+nothing and returns an empty page rather than an error, and a `q` shorter than 2 characters is
+rejected with `400`, because one character cannot usefully match a full-text index.
 
 ### Why this envelope
 
