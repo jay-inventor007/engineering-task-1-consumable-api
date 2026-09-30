@@ -37,7 +37,12 @@ h1 {
   color: #5b6470;
 }
 
+.controls input {
+  min-width: 220px;
+}
+
 select,
+input,
 button {
   font: inherit;
   font-size: 0.9rem;
