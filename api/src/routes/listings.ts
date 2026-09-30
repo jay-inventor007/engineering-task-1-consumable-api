@@ -32,6 +32,7 @@ export const listingFilters = {
   minPrice: money.optional(),
   maxPrice: money.optional(),
   minBedrooms: z.coerce.number().int().min(0).optional(),
+  q: z.string().trim().min(2).max(100).optional(),
 };
 
 type ListingFilterValues = {
@@ -44,6 +45,7 @@ type ListingFilterValues = {
   minPrice?: number;
   maxPrice?: number;
   minBedrooms?: number;
+  q?: string;
 };
 
 export function listingConditions(f: ListingFilterValues) {
@@ -57,6 +59,7 @@ export function listingConditions(f: ListingFilterValues) {
   if (f.minPrice !== undefined) c.add(`price_minor >= ${c.param(f.minPrice)}`);
   if (f.maxPrice !== undefined) c.add(`price_minor <= ${c.param(f.maxPrice)}`);
   if (f.minBedrooms !== undefined) c.add(`bedrooms >= ${c.param(f.minBedrooms)}`);
+  if (f.q) c.add(`search_vector @@ websearch_to_tsquery('english', ${c.param(f.q)})`);
   return c;
 }
 

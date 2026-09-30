@@ -22,7 +22,7 @@ type Listing = {
   address: string;
 };
 type Page = { data: Listing[]; meta: { total: number; limit: number; hasMore: boolean; nextCursor: string | null } };
-type Filters = { city: string; listingType: string; sortKey: keyof typeof SORTS };
+type Filters = { city: string; listingType: string; sortKey: keyof typeof SORTS; q: string };
 
 type State =
   | { kind: 'loading' }
@@ -37,7 +37,8 @@ function formatPrice(listing: Listing) {
 }
 
 export function App() {
-  const [filters, setFilters] = useState<Filters>({ city: '', listingType: '', sortKey: 'newest' });
+  const [filters, setFilters] = useState<Filters>({ city: '', listingType: '', sortKey: 'newest', q: '' });
+  const [search, setSearch] = useState('');
   // cursors[0] is the first page (no cursor); each "Next" pushes the cursor for the following page.
   const [cursors, setCursors] = useState<(string | null)[]>([null]);
   const [state, setState] = useState<State>({ kind: 'loading' });
@@ -50,6 +51,7 @@ export function App() {
     const params = new URLSearchParams({ limit: String(PAGE_SIZE), ...SORTS[filters.sortKey] });
     if (filters.city) params.set('city', filters.city);
     if (filters.listingType) params.set('listingType', filters.listingType);
+    if (filters.q) params.set('q', filters.q);
     if (cursor) params.set('cursor', cursor);
 
     setState({ kind: 'loading' });
@@ -73,6 +75,19 @@ export function App() {
     setCursors([null]); // a cursor belongs to one filter set, so any filter change restarts at page 1
   };
 
+  // The box updates on every keystroke but only reaches `filters` after typing pauses, so one
+  // request goes out per pause rather than per character. A single character is held back,
+  // because the API requires at least two.
+  useEffect(() => {
+    const q = search.trim();
+    if (q.length === 1) return;
+    const timer = setTimeout(() => {
+      setFilters((f) => (f.q === q ? f : { ...f, q }));
+      setCursors([null]);
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [search]);
+
   if (!API) {
     return (
       <main>
@@ -91,6 +106,15 @@ export function App() {
       </p>
 
       <div className="controls">
+        <label>
+          Search
+          <input
+            type="search"
+            placeholder="e.g. duplex Ikoyi"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </label>
         <label>
           City
           <select value={filters.city} onChange={(e) => changeFilter({ city: e.target.value })}>
@@ -130,7 +154,14 @@ export function App() {
       {state.kind === 'ready' && state.page.data.length === 0 && (
         <div className="notice">
           <p>No listings match these filters.</p>
-          <button onClick={() => changeFilter({ city: '', listingType: '' })}>Clear filters</button>
+          <button
+            onClick={() => {
+              setSearch('');
+              changeFilter({ city: '', listingType: '', q: '' });
+            }}
+          >
+            Clear filters
+          </button>
         </div>
       )}
 
